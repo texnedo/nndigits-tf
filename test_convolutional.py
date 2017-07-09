@@ -7,13 +7,9 @@ from tensorflow.examples.tutorials.mnist import input_data
 def main(argv):
 	mnist = input_data.read_data_sets("MNIST_data/", one_hot=False, reshape=False)
 	###############################################################
-	batch_size = 50
-	max_batch_per_epoch = 50
-	#batch_size = 1
+	batch_size = 1000
 	learning_rate = 0.01
-	learning_epochs = 10
-	#learning_epochs = 1
-	momentum = 0.9
+	learning_epochs = 2
 	image_width = 28
 	image_height = 28
 	image_channels = 1
@@ -27,7 +23,7 @@ def main(argv):
 	full1_size = 512
 	full2_size = image_labels_count
 	full_b_initial = 0.1
-	full1_dropout = 0.5
+	full1_dropout = 0.4
 	full_regularization_param = 5e-4
 	###############################################################
 	#first convolutional layer
@@ -52,6 +48,9 @@ def main(argv):
 	eval_labels = tf.placeholder(tf.int32, shape=[batch_size,], name='eval_labels')
 	test_input = tf.placeholder(tf.float32, shape=[len(mnist.test.images), image_height, image_width, image_channels], name='test_input')
 	test_labels = tf.placeholder(tf.int32, shape=[len(mnist.test.images),], name='test_labels')
+	validation_input = tf.placeholder(tf.float32, shape=[len(mnist.validation.images), image_height, image_width, image_channels], name='validation_input')
+	validation_labels = tf.placeholder(tf.int32, shape=[len(mnist.validation.images),], name='validation_labels')
+	user_input = tf.placeholder(tf.float32, shape=[1, image_height, image_width, image_channels], name='user_input')
 	###############################################################
 	def model(data, train=False):
 		#first convolutional layer
@@ -82,21 +81,31 @@ def main(argv):
   	#add the regularization term to the loss.
   	cross_entropy += full_regularization_param * regularizers
   	#run gradient descent
-  	optimizer = tf.train.AdamOptimizer(learning_rate, momentum).minimize(cross_entropy)
+  	optimizer = tf.train.AdamOptimizer(learning_rate).minimize(cross_entropy)
   	#predictions for validation inputs
   	eval_prediction = tf.nn.softmax(model(eval_input, False))
   	#predictions for test inputs
   	test_prediction = tf.nn.softmax(model(test_input, False))
+  	#predictions for validation inputs
+  	validation_prediction = tf.nn.softmax(model(validation_input, False))
+  	#predictions for single user input
+  	user_prediction = tf.nn.softmax(model(user_input, False))
 	###############################################################
 
 	sess = tf.InteractiveSession()
 	tf.initialize_all_variables().run()
 	batch_count = len(mnist.train.images) / batch_size
-	batch_count = min(batch_count, max_batch_per_epoch)
+	#batch accuracy computation
 	batch_prediction = tf.equal(tf.cast(eval_labels, tf.float32), tf.cast(tf.argmax(eval_prediction, 1), tf.float32))
 	batch_accuracy = tf.reduce_mean(tf.cast(batch_prediction, tf.float32))
-	
+	#epoch accuracy computation (by validation set)
+	epoch_prediction = tf.equal(tf.cast(validation_labels, tf.float32), tf.cast(tf.argmax(validation_prediction, 1), tf.float32))
+	epoch_accuracy = tf.reduce_mean(tf.cast(epoch_prediction, tf.float32))
+	#get user predicted digit value
+	user_predicted_digit = tf.argmax(user_prediction, 1)
+	#prepare arrays to save accuracy
 	batch_accuracy_results = np.zeros([batch_count * learning_epochs])
+	epoch_accuracy_results = np.zeros([learning_epochs])
 
 	for e in range(0, learning_epochs):
 		for i in range(0, batch_count):
@@ -110,7 +119,11 @@ def main(argv):
 			batch_accuracy_results[bi] = sess.run(batch_accuracy, {eval_input: batch_x, eval_labels: batch_y})
 			print('Accuracy (batch: ' + str(i) + ' in epoch: ' + str(e) + '): '
 									  + str(batch_accuracy_results[bi]))
+		epoch_accuracy_results[e] = sess.run(epoch_accuracy, {validation_input: mnist.validation.images, validation_labels: mnist.validation.labels})
+		print('Accuracy (in epoch: ' + str(e) + '): '
+									  + str(epoch_accuracy_results[e]))
 
+	#compute total accuracy onver test set
 	total_prediction = tf.equal(tf.cast(test_labels, tf.float32), tf.cast(tf.argmax(test_prediction, 1), tf.float32))
 	total_accuracy = tf.reduce_mean(tf.cast(total_prediction, tf.float32))
 	print('Total accuracy: ' + str(sess.run(total_accuracy, {test_input: mnist.test.images, test_labels: mnist.test.labels})))
@@ -129,18 +142,12 @@ def main(argv):
 		val_index = tf.random_uniform(shape=[1], maxval=len(mnist.test.images)-1, dtype=tf.int32);
 		val_index = int(val_index.eval())
 		print('Random image index: ' + str(val_index))
-
-		test_feed = mnist.test.images[val_index].reshape(1, 784)
-
-		print(mnist.test.images[val_index].shape)
-		print(test_feed.shape)
-
-		test_eval = tf.argmax(eval_prediction, 1)
-		print('Predicted digit: ' + str(sess.run(test_eval, {eval_input: test_feed})))
-
-		img1 = test_feed.reshape(28, 28)
+		test_feed = np.empty([1, image_height, image_width, 1])
+		test_feed[0] = mnist.test.images[val_index]
+		print('Predicted digit: ' + str(sess.run(user_predicted_digit, {user_input: test_feed})))
+		print('Actual digit: ' + str(mnist.test.labels[val_index]))
 		pl.ion()
-		pl.imshow(img1, cmap='gray')
+		pl.imshow(mnist.test.images[val_index].reshape(image_height, image_width), cmap='gray')
 		pl.show()
 		pl.pause(0.001)
 		pass
