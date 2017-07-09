@@ -9,7 +9,9 @@ def main(argv):
 	###############################################################
 	batch_size = 1000
 	learning_rate = 0.01
-	learning_epochs = 2
+	learning_rate_decay_rate = 0.95
+	momentum = 0.9
+	learning_epochs = 5
 	image_width = 28
 	image_height = 28
 	image_channels = 1
@@ -23,22 +25,23 @@ def main(argv):
 	full1_size = 512
 	full2_size = image_labels_count
 	full_b_initial = 0.1
+	W_max_initial = 0.1
 	full1_dropout = 0.4
 	full_regularization_param = 5e-4
 	###############################################################
 	#first convolutional layer
-	conv1_W = tf.Variable(tf.truncated_normal(shape=[filter_size, filter_size, image_channels, conv1_filter_count]))
+	conv1_W = tf.Variable(tf.truncated_normal(shape=[filter_size, filter_size, image_channels, conv1_filter_count], stddev=W_max_initial))
 	conv1_b = tf.Variable(tf.zeros(shape=[conv1_filter_count]))
 	#second convolutional layer
-	conv2_W = tf.Variable(tf.truncated_normal(shape=[filter_size, filter_size, conv1_filter_count, conv2_filter_count]))
+	conv2_W = tf.Variable(tf.truncated_normal(shape=[filter_size, filter_size, conv1_filter_count, conv2_filter_count], stddev=W_max_initial))
 	conv2_b = tf.Variable(tf.constant(conv2_b_initial, dtype=tf.float32, shape=[conv2_filter_count]))
 	#first fully connected layer
 	pooled_region_size = pool_size * pool_size
 	full1_input_size = (image_width // pooled_region_size) * (image_height // pooled_region_size) * conv2_filter_count
-	full1_W = tf.Variable(tf.truncated_normal(shape=[full1_input_size, full1_size], dtype=tf.float32))
+	full1_W = tf.Variable(tf.truncated_normal(shape=[full1_input_size, full1_size], dtype=tf.float32, stddev=W_max_initial))
 	full1_b	= tf.Variable(tf.constant(full_b_initial, dtype=tf.float32, shape=[full1_size]))
 	#second fully connected layer (output)
-	full2_W = tf.Variable(tf.truncated_normal(shape=[full1_size, full2_size], dtype=tf.float32))
+	full2_W = tf.Variable(tf.truncated_normal(shape=[full1_size, full2_size], dtype=tf.float32, stddev=W_max_initial))
 	full2_b = tf.Variable(tf.constant(full_b_initial, dtype=tf.float32, shape=[full2_size]))
 	###############################################################
 	#input data
@@ -81,7 +84,16 @@ def main(argv):
   	#add the regularization term to the loss.
   	cross_entropy += full_regularization_param * regularizers
   	#run gradient descent
-  	optimizer = tf.train.AdamOptimizer(learning_rate).minimize(cross_entropy)
+	batch_index = tf.Variable(0, dtype=tf.float32)
+	learning_rate_decay = tf.train.exponential_decay(
+		learning_rate, 
+		batch_index, 
+		len(mnist.train.images),          
+	  	learning_rate_decay_rate, 
+	  	staircase=True)
+	#optimizer = tf.train.AdamOptimizer(learning_rate).minimize(cross_entropy)
+	#optimizer = tf.train.GradientDescentOptimizer(learning_rate).minimize(cross_entropy)
+	optimizer = tf.train.MomentumOptimizer(learning_rate_decay, momentum).minimize(cross_entropy)
   	#predictions for validation inputs
   	eval_prediction = tf.nn.softmax(model(eval_input, False))
   	#predictions for test inputs
@@ -111,10 +123,10 @@ def main(argv):
 		for i in range(0, batch_count):
 			print('Run batch: ' + str(i) + ' in epoch: ' + str(e))
 			batch_x, batch_y = mnist.train.next_batch(batch_size)
-			#run SGD optimization for the current batch
-			sess.run(optimizer, {train_intput : batch_x, train_lables : batch_y})
 			#get batch offset
 			bi = i + e * batch_count
+			#run SGD optimization for the current batch
+			sess.run(optimizer, {train_intput: batch_x, train_lables: batch_y, batch_index: bi})
 			#evaluate model on the same batch
 			batch_accuracy_results[bi] = sess.run(batch_accuracy, {eval_input: batch_x, eval_labels: batch_y})
 			print('Accuracy (batch: ' + str(i) + ' in epoch: ' + str(e) + '): '
